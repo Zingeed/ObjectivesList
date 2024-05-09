@@ -1,0 +1,270 @@
+Main and only .java file:
+
+Aprendiendo.java:
+
+package me.zingeed;
+
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.Sound;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.EnderDragon;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.*;
+
+public final class Aprendiendo extends JavaPlugin implements Listener {
+
+    private Inventory mainGUI;
+    private Inventory dragonSlayersGUI;
+    private Set<String> dragonSlayers;
+    private Sound guiSound = Sound.ENTITY_PLAYER_LEVELUP; // Default sound
+
+    @Override
+    public void onEnable() {
+        this.getServer().getPluginManager().registerEvents(this, this);
+        dragonSlayers = new HashSet<>();
+        // Load dragon slayers and GUI settings from config
+        loadConfig();
+        // Create main GUI
+        createMainGUI(ChatColor.translateAlternateColorCodes('&', getConfig().getString("gui-settings.title", "&4&lOBJETIVOS")));
+        // Create dragon slayers list GUI
+        createDragonSlayersGUI(ChatColor.translateAlternateColorCodes('&', getConfig().getString("dragon-slayers-gui.title", "&6&lAsesinos de Dragones")));
+    }
+
+    @Override
+    public void onDisable() {
+        // Save dragon slayers to config
+        saveDragonSlayers();
+    }
+
+    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if (label.equalsIgnoreCase("objetivos")) {
+            if (!(sender instanceof Player)) {
+                sender.sendMessage("Only players can execute this command.");
+                return true;
+            }
+            Player player = (Player) sender;
+            // Close any open inventory
+            player.closeInventory();
+            // Open main GUI
+            player.openInventory(mainGUI);
+            return true;
+        } else if (label.equalsIgnoreCase("reloadaprendiendo")) {
+            if (!sender.hasPermission("aprendiendo.reload")) {
+                sender.sendMessage(ChatColor.RED + "You don't have permission to use this command.");
+                return true;
+            }
+            reloadConfig();
+            loadConfig(); // Reload dragon slayers after config reload
+            // Update dragon slayers GUI
+            createDragonSlayersGUI(ChatColor.translateAlternateColorCodes('&', getConfig().getString("dragon-slayers-gui.title", "&6&lAsesinos de Dragones")));
+            sender.sendMessage(ChatColor.GREEN + "Aprendiendo configuration reloaded.");
+            return true;
+        }
+        return false;
+    }
+
+    @EventHandler
+    public void onClick(InventoryClickEvent event) {
+        Inventory clickedInventory = event.getClickedInventory();
+        if (clickedInventory == null)
+            return;
+
+        // Check if the clicked inventory is either the main GUI or the dragon slayers list GUI
+        if (clickedInventory.equals(mainGUI) || clickedInventory.equals(dragonSlayersGUI)) {
+            event.setCancelled(true);
+
+            // Handle interaction with main GUI
+            if (clickedInventory.equals(mainGUI) && event.getRawSlot() == 11) {
+                // Open dragon slayers list GUI
+                ((Player) event.getWhoClicked()).openInventory(dragonSlayersGUI);
+                // Play GUI sound
+                ((Player) event.getWhoClicked()).playSound(event.getWhoClicked().getLocation(), guiSound, 1, 1);
+            }
+        }
+    }
+
+    // Method to create the main GUI
+    public void createMainGUI(String title) {
+        mainGUI = Bukkit.createInventory(null, 27, title);
+
+        // Fill empty slots with black stained glass panes
+        ItemStack blackPane = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta paneMeta = blackPane.getItemMeta();
+        paneMeta.setDisplayName(ChatColor.BLACK + "");
+        blackPane.setItemMeta(paneMeta);
+        for (int i = 0; i < mainGUI.getSize(); i++) {
+            if (i < 9 || i % 9 == 0 || (i + 1) % 9 == 0 || i > 45) {
+                mainGUI.setItem(i, blackPane);
+            }
+        }
+
+        // Set the dragon egg item
+        ConfigurationSection dragonSlayersGui = getConfig().getConfigurationSection("dragon-slayers-gui");
+        if (dragonSlayersGui != null) {
+            ItemStack item = new ItemStack(Material.valueOf(dragonSlayersGui.getString("dragon-egg-item.material", "DRAGON_EGG")));
+            ItemMeta meta = item.getItemMeta();
+            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', dragonSlayersGui.getString("dragon-egg-item.display-name", "&eDragon Egg")));
+            List<String> lore = dragonSlayersGui.getStringList("dragon-egg-item.lore");
+            if (!lore.isEmpty()) {
+                List<String> translatedLore = new ArrayList<>();
+                for (String line : lore) {
+                    translatedLore.add(ChatColor.translateAlternateColorCodes('&', line));
+                }
+                meta.setLore(translatedLore);
+            }
+            item.setItemMeta(meta);
+            mainGUI.setItem(11, item); // Dragon egg item slot
+        }
+    }
+
+    // Method to create the GUI for dragon slayers list
+    public void createDragonSlayersGUI(String title) {
+        dragonSlayersGUI = Bukkit.createInventory(null, 54, title); // Create a 54-slot chest GUI
+
+        // Fill the borders with black stained glass panes
+        ItemStack blackPane = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta paneMeta = blackPane.getItemMeta();
+        paneMeta.setDisplayName(ChatColor.BLACK + "");
+        blackPane.setItemMeta(paneMeta);
+        for (int i = 0; i < dragonSlayersGUI.getSize(); i++) {
+            if (i < 9 || i % 9 == 0 || (i + 1) % 9 == 0 || i > 45) {
+                dragonSlayersGUI.setItem(i, blackPane);
+            }
+        }
+
+        // Fill empty slots with conduit items
+        ItemStack conduit = new ItemStack(Material.CONDUIT);
+        ItemMeta conduitMeta = conduit.getItemMeta();
+        conduitMeta.setDisplayName(ChatColor.GRAY + "Empty Slot");
+        conduit.setItemMeta(conduitMeta);
+        for (int i = 0; i < dragonSlayersGUI.getSize(); i++) {
+            if (dragonSlayersGUI.getItem(i) == null || dragonSlayersGUI.getItem(i).getType() == Material.AIR) {
+                dragonSlayersGUI.setItem(i, conduit);
+            }
+        }
+
+        // Replace conduit items with player heads
+        int slot = 0;
+        for (String playerName : dragonSlayers) {
+            if (slot >= dragonSlayersGUI.getSize()) {
+                break; // Stop if we reach the end of the GUI
+            }
+            // Find the next empty slot to place the player head
+            while (dragonSlayersGUI.getItem(slot) != null && dragonSlayersGUI.getItem(slot).getType() != Material.CONDUIT) {
+                slot++;
+                if (slot >= dragonSlayersGUI.getSize()) {
+                    break; // Stop if we reach the end of the GUI
+                }
+            }
+            if (slot >= dragonSlayersGUI.getSize()) {
+                break; // Stop if we reach the end of the GUI
+            }
+            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(playerName);
+            ItemStack playerHead = new ItemStack(Material.PLAYER_HEAD);
+            SkullMeta meta = (SkullMeta) playerHead.getItemMeta();
+            meta.setOwningPlayer(offlinePlayer);
+            playerHead.setItemMeta(meta);
+            dragonSlayersGUI.setItem(slot, playerHead);
+            slot++;
+        }
+    }
+
+    // Event handler for when an entity dies
+    @EventHandler
+    public void onEntityDeath(EntityDeathEvent event) {
+        if (event.getEntity() instanceof EnderDragon) {
+            if (event.getEntity().getKiller() != null) {
+                Player player = event.getEntity().getKiller();
+                addDragonSlayer(player.getName());
+            }
+        }
+    }
+
+    // Method to add players who killed the Ender Dragon
+    public void addDragonSlayer(String playerName) {
+        dragonSlayers.add(playerName);
+        // Update dragon slayers GUI
+        createDragonSlayersGUI(ChatColor.translateAlternateColorCodes('&', getConfig().getString("dragon-slayers-gui.title", "&6&lAsesinos de Dragones")));
+    }
+
+    // Method to remove players who killed the Ender Dragon
+    public void removeDragonSlayer(String playerName) {
+        dragonSlayers.remove(playerName);
+        // Update dragon slayers GUI
+        createDragonSlayersGUI(ChatColor.translateAlternateColorCodes('&', getConfig().getString("dragon-slayers-gui.title", "&6&lAsesinos de Dragones")));
+    }
+
+    // Load dragon slayers from config
+    private void loadConfig() {
+        getConfig().options().copyDefaults(true);
+        saveConfig();
+
+        // Load dragon slayers from config
+        if (getConfig().contains("dragonSlayers")) {
+            dragonSlayers.clear(); // Clear the existing set before loading from config
+            dragonSlayers.addAll(getConfig().getStringList("dragonSlayers"));
+        }
+    }
+
+    // Save dragon slayers to config
+    private void saveDragonSlayers() {
+        getConfig().set("dragonSlayers", new ArrayList<>(dragonSlayers));
+        saveConfig(); // Save the changes to the configuration file
+    }
+}
+
+config.yml:
+
+gui-settings:
+    title: '&4&lOBJETIVOS' # Title of the GUI (supports color codes)
+    sound: ENTITY_PLAYER_LEVELUP # Sound played when opening the GUI
+dragon-slayers-gui:
+    title: '&6&lAsesinos de Dragones'
+    dragon-egg-item:
+        material: DRAGON_EGG # Material of the dragon egg item
+        display-name: '&eDragon Egg' # Display name of the dragon egg item (supports color codes)
+        lore: # Lore of the dragon egg item (supports color codes)
+            - '&7Haga clic aquí para ver'
+            - '&7a los asesinos de dragones'
+dragonSlayers:
+
+
+plugin.yml:
+
+name: Aprendiendo
+version: 1.0
+description: A plugin to track players who have slain the Ender Dragon.
+author: Zingeed
+main: me.zingeed.Aprendiendo
+api-version: 1.17
+
+commands:
+    objetivos:
+        description: Opens the main GUI.
+        usage: /objetivos
+    reloadaprendiendo:
+        description: Reloads the Aprendiendo configuration.
+        usage: /reloadaprendiendo
+        permission: aprendiendo.reload
+
+permissions:
+    aprendiendo.reload:
+        description: Permission to reload the Aprendiendo configuration.
+        default: op
+
+
